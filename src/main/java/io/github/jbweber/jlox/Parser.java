@@ -1,6 +1,5 @@
 package io.github.jbweber.jlox;
 
-import java.text.ParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -152,6 +151,38 @@ class Parser {
         return expr;
     }
 
+    private Expr finishCall(Expr expr) {
+        List<Expr> args = new ArrayList<>();
+
+        if (!check(RIGHT_PAREN)) {
+            do {
+                if (args.size() > 255) {
+                    error(peek(), "Can't have more than 255 arguments.");
+                }
+
+                args.add(expression());
+            } while (match(COMMA));
+        }
+
+        Token paren = consume(RIGHT_PAREN, "Expect ')' after arguments.");
+
+        return new Expr.Call(expr, paren, args);
+    }
+
+    private Expr call() {
+        Expr expr = primary();
+
+        while (true) {
+            if (match(LEFT_PAREN)) {
+                expr = finishCall(expr);
+            } else {
+                break;
+            }
+        }
+
+        return expr;
+    }
+
     private Expr unary() {
         if (match(BANG, MINUS)) {
             Token operator = previous();
@@ -159,7 +190,7 @@ class Parser {
             return new Expr.Unary(operator, right);
         }
 
-        return primary();
+        return call();
     }
 
     private Token consume(TokenType type, String message) {
@@ -319,6 +350,19 @@ class Parser {
         return new Stmt.While(condition, body);
     }
 
+    private Stmt returnStatement() {
+        Token keyword = previous();
+
+        Expr value = null;
+        if (!check(SEMICOLON)) {
+            value = expression();
+        }
+
+        consume(SEMICOLON, "Expect ';' after return value.");
+
+        return new Stmt.Return(keyword, value);
+    }
+
     private Stmt statement() {
         if (match(FOR)) {
             return forStatement();
@@ -330,6 +374,10 @@ class Parser {
 
         if (match(PRINT)) {
             return printStatement();
+        }
+
+        if (match(RETURN)) {
+            return returnStatement();
         }
 
         if (match(WHILE)) {
@@ -355,8 +403,35 @@ class Parser {
         return new Stmt.Var(name, initializer);
     }
 
+    private Stmt.Function function(String kind) {
+        Token name = consume(IDENTIFIER, "Expect %s name.".formatted(kind));
+        consume(LEFT_PAREN, "Expect '(' after %s name.".formatted(kind));
+
+        List<Token> parameters = new ArrayList<>();
+        if (!check(RIGHT_PAREN)) {
+            do {
+                if (parameters.size() > 255) {
+                    error(peek(), "Can't have more than 255 parameters.");
+                }
+
+                parameters.add(consume(IDENTIFIER, "Expect parameter name."));
+            } while (match(COMMA));
+        }
+
+        consume(RIGHT_PAREN, "Expect ')' after parameters.");
+
+        consume(LEFT_BRACE, "Expect '{' before %s body.".formatted(kind));
+        List<Stmt> body = block();
+
+        return new Stmt.Function(name, parameters, body);
+    }
+
     private Stmt declaration() {
         try {
+            if (match(FUN)) {
+                return function("function");
+            }
+
             if (match(VAR)) {
                 return varDeclaration();
             }
