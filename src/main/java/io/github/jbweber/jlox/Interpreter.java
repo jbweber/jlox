@@ -1,11 +1,14 @@
 package io.github.jbweber.jlox;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 class Interpreter implements Expr.Visitor<Object>, Stmt.Visitor<Void> {
     final Environment globals = new Environment();
     private Environment environment = globals;
+    private final Map<Expr, Integer> locals = new HashMap<>();
 
     Interpreter() {
         globals.define("clock", new LoxCallable() {
@@ -26,8 +29,13 @@ class Interpreter implements Expr.Visitor<Object>, Stmt.Visitor<Void> {
         });
     }
 
+
     private void execute(Stmt stmt) {
         stmt.accept(this);
+    }
+
+    void resolve(Expr expr, int depth) {
+        locals.put(expr, depth);
     }
 
     void interpret(List<Stmt> statements) {
@@ -103,7 +111,14 @@ class Interpreter implements Expr.Visitor<Object>, Stmt.Visitor<Void> {
     @Override
     public Object visitAssignExpr(Expr.Assign expr) {
         Object value = evaluate(expr.value);
-        environment.assign(expr.name, value);
+
+        Integer distance = locals.get(expr);
+        if (distance != null) {
+            environment.assignAt(distance, expr.name, value);
+        } else {
+            globals.assign(expr.name, value);
+        }
+
         return value;
     }
 
@@ -217,9 +232,18 @@ class Interpreter implements Expr.Visitor<Object>, Stmt.Visitor<Void> {
         return null;
     }
 
+    private Object lookUpVariable(Token name, Expr expression) {
+        Integer distance = locals.get(expression);
+        if (distance != null) {
+            return environment.getAt(distance, name.getLexeme());
+        } else {
+            return globals.get(name);
+        }
+    }
+
     @Override
     public Object visitVariableExpr(Expr.Variable expr) {
-        return environment.get(expr.name);
+        return lookUpVariable(expr.name, expr);
     }
 
     // statement
@@ -280,7 +304,7 @@ class Interpreter implements Expr.Visitor<Object>, Stmt.Visitor<Void> {
     @Override
     public Void visitReturnStmt(Stmt.Return stmt) {
         Object value = null;
-        if(stmt.value != null) {
+        if (stmt.value != null) {
             value = evaluate(stmt.value);
         }
 
